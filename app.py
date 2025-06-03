@@ -5,8 +5,9 @@ import time
 from urllib.parse import urlparse
 from googleapiclient.discovery import build
 
-# Fetch the API key from Streamlit Secrets
+# Fetch the API key and password from Streamlit Secrets
 API_KEY = st.secrets["API_KEY"]
+PASSWORD = st.secrets["APP_PASSWORD"]
 
 def extract_handle_from_url(url):
     parsed_url = urlparse(url)
@@ -30,6 +31,13 @@ def get_channel_stats(youtube, handle):
 
 def main():
     st.title("YouTube Stats Checker")
+
+    # Simple password check
+    password = st.text_input("Enter password to access the app:", type="password")
+    if password != PASSWORD:
+        st.warning("Please enter the correct password to proceed.")
+        st.stop()
+
     uploaded_file = st.file_uploader("Upload CSV file with YouTube channel URLs")
 
     if uploaded_file:
