@@ -40,7 +40,7 @@ def main():
         password = st.text_input("Enter password to access the app:", type="password")
         if password == PASSWORD:
             st.session_state.authenticated = True
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.warning("Please enter the correct password to proceed.")
             st.stop()
