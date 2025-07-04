@@ -32,61 +32,86 @@ def get_channel_stats(youtube, handle):
 def main():
     st.title("YouTube Stats Checker")
 
-    # Simple password check
-    password = st.text_input("Enter password to access the app:", type="password")
-    if password != PASSWORD:
-        st.warning("Please enter the correct password to proceed.")
-        st.stop()
+    # Login screen
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if not st.session_state.authenticated:
+        password = st.text_input("Enter password to access the app:", type="password")
+        if password == PASSWORD:
+            st.session_state.authenticated = True
+            st.experimental_rerun()
+        else:
+            st.warning("Please enter the correct password to proceed.")
+            st.stop()
+
+    # Initialize session state
+    if "results" not in st.session_state:
+        st.session_state.results = []
+    if "urls" not in st.session_state:
+        st.session_state.urls = []
+    if "processing" not in st.session_state:
+        st.session_state.processing = False
+    if "current_index" not in st.session_state:
+        st.session_state.current_index = 0
 
     uploaded_file = st.file_uploader("Upload CSV file with YouTube channel URLs")
 
-    if uploaded_file:
-        youtube = build('youtube', 'v3', developerKey=API_KEY)
+    if uploaded_file and not st.session_state.processing:
         lines = uploaded_file.read().decode('utf-8').splitlines()
         reader = csv.reader(lines)
-        urls = [row[0].strip() for row in reader if row]
+        st.session_state.urls = [row[0].strip() for row in reader if row]
+        st.session_state.results = []
+        st.session_state.current_index = 0
 
-        if st.button("Start Processing"):
-            results = []
-            total_rows = len(urls)
-            progress_bar = st.progress(0)
-            progress_text = st.empty()  # Placeholder for percentage text
+    if st.button("Start Processing") and st.session_state.urls:
+        st.session_state.processing = True
 
-            for idx, url in enumerate(urls):
-                handle = extract_handle_from_url(url)
-                if handle:
-                    try:
-                        subs, vids = get_channel_stats(youtube, handle)
-                    except Exception as e:
-                        st.error(f"Error processing {handle}: {str(e)}")
-                        subs, vids = 'Error', 'Error'
-                    
-                    results.append({
-                        "Channel URL": url,
-                        "Subscribers": subs,
-                        "Videos": vids
-                    })
+    if st.session_state.processing:
+        youtube = build('youtube', 'v3', developerKey=API_KEY)
+        total_rows = len(st.session_state.urls)
+        progress_bar = st.progress(st.session_state.current_index / total_rows)
+        progress_text = st.empty()
 
-                    time.sleep(1)  # 1 request per second
+        for idx in range(st.session_state.current_index, total_rows):
+            url = st.session_state.urls[idx]
+            handle = extract_handle_from_url(url)
+            if handle:
+                try:
+                    subs, vids = get_channel_stats(youtube, handle)
+                except Exception as e:
+                    st.error(f"Error processing {handle}: {str(e)}")
+                    subs, vids = 'Error', 'Error'
 
-                progress_percentage = ((idx + 1) / total_rows) * 100
+                st.session_state.results.append({
+                    "Channel URL": url,
+                    "Subscribers": subs,
+                    "Videos": vids
+                })
+
+                st.session_state.current_index = idx + 1
                 progress_bar.progress((idx + 1) / total_rows)
-                progress_text.text(f"Progress: {progress_percentage:.2f}%")
+                progress_text.text(f"Progress: {(idx + 1) / total_rows * 100:.2f}%")
 
-            st.write("### Results (showing first 4 rows):")
-            df = pd.DataFrame(results)
-            st.table(df.head(4))
+                time.sleep(1)  # 1 request per second
 
-            csv_filename = "youtube_stats_results.csv"
-            df.to_csv(csv_filename, index=False)
+        st.session_state.processing = False
 
-            st.success(f"Results saved to {csv_filename}.")
-            st.download_button(
-                label="Download CSV",
-                data=df.to_csv(index=False).encode('utf-8'),
-                file_name=csv_filename,
-                mime='text/csv'
-            )
+    if st.session_state.results:
+        st.write("### Results (showing first 4 rows):")
+        df = pd.DataFrame(st.session_state.results)
+        st.table(df.head(4))
+
+        csv_filename = "youtube_stats_results.csv"
+        df.to_csv(csv_filename, index=False)
+
+        st.success(f"Results saved to {csv_filename}.")
+        st.download_button(
+            label="Download CSV",
+            data=df.to_csv(index=False).encode('utf-8'),
+            file_name=csv_filename,
+            mime='text/csv'
+        )
 
 if __name__ == "__main__":
     main()
