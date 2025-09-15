@@ -4,6 +4,8 @@ import pandas as pd
 import time
 from urllib.parse import urlparse
 from googleapiclient.discovery import build
+import base64
+import streamlit.components.v1 as components  # <-- for auto-download
 
 # Fetch the API key and password from Streamlit Secrets
 API_KEY = st.secrets["API_KEY"]
@@ -54,6 +56,8 @@ def main():
         st.session_state.processing = False
     if "current_index" not in st.session_state:
         st.session_state.current_index = 0
+    if "auto_dl_done" not in st.session_state:
+        st.session_state.auto_dl_done = False  # prevent repeated auto-downloads on reruns
 
     uploaded_file = st.file_uploader("Upload CSV file with YouTube channel URLs")
 
@@ -63,6 +67,7 @@ def main():
         st.session_state.urls = [row[0].strip() for row in reader if row]
         st.session_state.results = []
         st.session_state.current_index = 0
+        st.session_state.auto_dl_done = False  # reset for new run
 
     if st.button("Start Processing") and st.session_state.urls:
         st.session_state.processing = True
@@ -100,20 +105,40 @@ def main():
     if st.session_state.results:
         df = pd.DataFrame(st.session_state.results)
         csv_filename = "youtube_stats_results.csv"
-        csv_data = df.to_csv(index=False).encode('utf-8')
+        csv_bytes = df.to_csv(index=False).encode('utf-8')
+        b64 = base64.b64encode(csv_bytes).decode()  # for data URL
+        data_url = f"data:text/csv;base64,{b64}"
 
-        # ✅ Clear message
-        st.success("✅ Processing complete! Your CSV is ready for download below:")
+        st.success("✅ Processing complete! Your CSV is ready.")
 
-        # ✅ Direct download button (Streamlit official way)
+        # ---- AUTO-DOWNLOAD (fires once) ----
+        if not st.session_state.auto_dl_done:
+            components.html(
+                f"""
+                <html><body>
+                  <a id="dl" href="{data_url}" download="{csv_filename}"></a>
+                  <script>
+                    // Give Streamlit a moment to mount; then click once.
+                    setTimeout(function() {{
+                      var a = document.getElementById('dl');
+                      if (a) a.click();
+                    }}, 200);
+                  </script>
+                </body></html>
+                """,
+                height=0,
+            )
+            st.session_state.auto_dl_done = True
+
+        # Manual fallback (in case browser blocks auto-download)
         st.download_button(
-            label="⬇️ Download CSV",
-            data=csv_data,
+            label="⬇️ Download CSV (Manual fallback)",
+            data=csv_bytes,
             file_name=csv_filename,
             mime='text/csv'
         )
 
-        # Optional: also display first few rows
+        # Optional preview
         st.write("### Preview (first 4 rows):")
         st.table(df.head(4))
 
