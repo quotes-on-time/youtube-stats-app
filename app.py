@@ -98,34 +98,24 @@ def main():
         st.session_state.processing = False
 
     if st.session_state.results:
-        st.write("### Results (showing first 4 rows):")
         df = pd.DataFrame(st.session_state.results)
-        st.table(df.head(4))
-
         csv_filename = "youtube_stats_results.csv"
         csv_data = df.to_csv(index=False).encode('utf-8')
 
-        # Auto download (injects a hidden download link & clicks it)
-        st.success("Processing complete! Downloading results...")
-        download_js = f"""
-        <script>
-        var element = document.createElement('a');
-        element.setAttribute('href', 'data:text/csv;charset=utf-8,{csv_data.decode("utf-8")}');
-        element.setAttribute('download', '{csv_filename}');
-        document.body.appendChild(element);
-        element.click();
-        document.body.removeChild(element);
-        </script>
-        """
-        st.markdown(download_js, unsafe_allow_html=True)
+        # ✅ Clear message
+        st.success("✅ Processing complete! Your CSV is ready for download below:")
 
-        # Also provide manual download button as fallback
+        # ✅ Direct download button (Streamlit official way)
         st.download_button(
-            label="Download CSV (Manual)",
+            label="⬇️ Download CSV",
             data=csv_data,
             file_name=csv_filename,
             mime='text/csv'
         )
+
+        # Optional: also display first few rows
+        st.write("### Preview (first 4 rows):")
+        st.table(df.head(4))
 
 if __name__ == "__main__":
     main()
