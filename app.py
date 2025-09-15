@@ -54,22 +54,9 @@ def main():
         st.session_state.processing = False
     if "current_index" not in st.session_state:
         st.session_state.current_index = 0
-    if "batch_size" not in st.session_state:
-        st.session_state.batch_size = 1
 
     uploaded_file = st.file_uploader("Upload CSV file with YouTube channel URLs")
 
-    # Batch size selector + save button
-    batch_size_input = st.number_input("How many channels to request per run?",
-                                       min_value=1, max_value=50,
-                                       value=st.session_state.batch_size,
-                                       step=1,
-                                       key="batch_size_input")
-    if st.button("Save batch size"):
-        st.session_state.batch_size = batch_size_input
-        st.success(f"Saved: {st.session_state.batch_size} channels per request")
-
-    # File handling
     if uploaded_file and not st.session_state.processing:
         lines = uploaded_file.read().decode('utf-8').splitlines()
         reader = csv.reader(lines)
@@ -77,56 +64,65 @@ def main():
         st.session_state.results = []
         st.session_state.current_index = 0
 
-    # Start processing
     if st.button("Start Processing") and st.session_state.urls:
         st.session_state.processing = True
 
-    # Process batch-wise
     if st.session_state.processing:
         youtube = build('youtube', 'v3', developerKey=API_KEY)
         total_rows = len(st.session_state.urls)
         progress_bar = st.progress(st.session_state.current_index / total_rows)
         progress_text = st.empty()
 
-        while st.session_state.current_index < total_rows:
-            batch_end = min(st.session_state.current_index + st.session_state.batch_size, total_rows)
-            batch = st.session_state.urls[st.session_state.current_index:batch_end]
+        for idx in range(st.session_state.current_index, total_rows):
+            url = st.session_state.urls[idx]
+            handle = extract_handle_from_url(url)
+            if handle:
+                try:
+                    subs, vids = get_channel_stats(youtube, handle)
+                except Exception as e:
+                    st.error(f"Error processing {handle}: {str(e)}")
+                    subs, vids = 'Error', 'Error'
 
-            for url in batch:
-                handle = extract_handle_from_url(url)
-                if handle:
-                    try:
-                        subs, vids = get_channel_stats(youtube, handle)
-                    except Exception as e:
-                        st.error(f"Error processing {handle}: {str(e)}")
-                        subs, vids = 'Error', 'Error'
+                st.session_state.results.append({
+                    "Channel URL": url,
+                    "Subscribers": subs,
+                    "Videos": vids
+                })
 
-                    st.session_state.results.append({
-                        "Channel URL": url,
-                        "Subscribers": subs,
-                        "Videos": vids
-                    })
+                st.session_state.current_index = idx + 1
+                progress_bar.progress((idx + 1) / total_rows)
+                progress_text.text(f"Progress: {(idx + 1) / total_rows * 100:.2f}%")
 
-                st.session_state.current_index += 1
-                progress_bar.progress(st.session_state.current_index / total_rows)
-                progress_text.text(f"Progress: {(st.session_state.current_index / total_rows) * 100:.2f}%")
-                time.sleep(1)  # Maintain 1 request per second
+                time.sleep(1)  # 1 request per second
 
         st.session_state.processing = False
 
-    # Display results
     if st.session_state.results:
         st.write("### Results (showing first 4 rows):")
         df = pd.DataFrame(st.session_state.results)
         st.table(df.head(4))
 
         csv_filename = "youtube_stats_results.csv"
-        df.to_csv(csv_filename, index=False)
+        csv_data = df.to_csv(index=False).encode('utf-8')
 
-        st.success(f"Results saved to {csv_filename}.")
+        # Auto download (injects a hidden download link & clicks it)
+        st.success("Processing complete! Downloading results...")
+        download_js = f"""
+        <script>
+        var element = document.createElement('a');
+        element.setAttribute('href', 'data:text/csv;charset=utf-8,{csv_data.decode("utf-8")}');
+        element.setAttribute('download', '{csv_filename}');
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+        </script>
+        """
+        st.markdown(download_js, unsafe_allow_html=True)
+
+        # Also provide manual download button as fallback
         st.download_button(
-            label="Download CSV",
-            data=df.to_csv(index=False).encode('utf-8'),
+            label="Download CSV (Manual)",
+            data=csv_data,
             file_name=csv_filename,
             mime='text/csv'
         )
