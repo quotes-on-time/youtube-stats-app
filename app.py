@@ -57,8 +57,6 @@ def main():
 
     uploaded_file = st.file_uploader("Upload CSV file with YouTube channel URLs")
 
-    batch_size = st.number_input("How many channels to request per run?", min_value=1, max_value=50, value=1, step=1)
-
     if uploaded_file and not st.session_state.processing:
         lines = uploaded_file.read().decode('utf-8').splitlines()
         reader = csv.reader(lines)
@@ -75,29 +73,27 @@ def main():
         progress_bar = st.progress(st.session_state.current_index / total_rows)
         progress_text = st.empty()
 
-        while st.session_state.current_index < total_rows:
-            batch_end = min(st.session_state.current_index + batch_size, total_rows)
-            batch = st.session_state.urls[st.session_state.current_index:batch_end]
+        for idx in range(st.session_state.current_index, total_rows):
+            url = st.session_state.urls[idx]
+            handle = extract_handle_from_url(url)
+            if handle:
+                try:
+                    subs, vids = get_channel_stats(youtube, handle)
+                except Exception as e:
+                    st.error(f"Error processing {handle}: {str(e)}")
+                    subs, vids = 'Error', 'Error'
 
-            for url in batch:
-                handle = extract_handle_from_url(url)
-                if handle:
-                    try:
-                        subs, vids = get_channel_stats(youtube, handle)
-                    except Exception as e:
-                        st.error(f"Error processing {handle}: {str(e)}")
-                        subs, vids = 'Error', 'Error'
+                st.session_state.results.append({
+                    "Channel URL": url,
+                    "Subscribers": subs,
+                    "Videos": vids
+                })
 
-                    st.session_state.results.append({
-                        "Channel URL": url,
-                        "Subscribers": subs,
-                        "Videos": vids
-                    })
+                st.session_state.current_index = idx + 1
+                progress_bar.progress((idx + 1) / total_rows)
+                progress_text.text(f"Progress: {(idx + 1) / total_rows * 100:.2f}%")
 
-                st.session_state.current_index += 1
-                progress_bar.progress(st.session_state.current_index / total_rows)
-                progress_text.text(f"Progress: {(st.session_state.current_index / total_rows) * 100:.2f}%")
-                time.sleep(1)  # Maintain 1 request per second
+                time.sleep(1)  # 1 request per second
 
         st.session_state.processing = False
 
