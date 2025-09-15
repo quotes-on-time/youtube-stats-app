@@ -4,6 +4,7 @@ import pandas as pd
 import time
 from urllib.parse import urlparse
 from googleapiclient.discovery import build
+import math
 
 # Fetch the API key and password from Streamlit Secrets
 API_KEY = st.secrets["API_KEY"]
@@ -18,16 +19,22 @@ def extract_handle_from_url(url):
         st.error(f"Invalid YouTube handle URL: {url}")
         return None
 
-def get_channel_stats(youtube, handle):
+def get_channel_stats(youtube, handles):
     request = youtube.channels().list(
         part='statistics',
-        forHandle=handle
+        forHandle=",".join(handles)   # multiple handles in one request
     )
     response = request.execute()
-    if 'items' not in response or len(response['items']) == 0:
-        return None, None
-    stats = response['items'][0]['statistics']
-    return stats.get('subscriberCount', 'N/A'), stats.get('videoCount', 'N/A')
+    results = {}
+    if 'items' in response:
+        for item in response['items']:
+            stats = item['statistics']
+            channel_id = item['id']
+            results[channel_id] = {
+                "Subscribers": stats.get('subscriberCount', 'N/A'),
+                "Videos": stats.get('videoCount', 'N/A')
+            }
+    return results
 
 def main():
     st.title("YouTube Stats Checker")
@@ -64,36 +71,46 @@ def main():
         st.session_state.results = []
         st.session_state.current_index = 0
 
+    # New input: channels per request
+    batch_size = st.number_input("Channels per request (1–50):", min_value=1, max_value=50, value=1, step=1)
+
     if st.button("Start Processing") and st.session_state.urls:
         st.session_state.processing = True
 
     if st.session_state.processing:
         youtube = build('youtube', 'v3', developerKey=API_KEY)
         total_rows = len(st.session_state.urls)
+        total_batches = math.ceil(total_rows / batch_size)
         progress_bar = st.progress(st.session_state.current_index / total_rows)
         progress_text = st.empty()
 
-        for idx in range(st.session_state.current_index, total_rows):
-            url = st.session_state.urls[idx]
-            handle = extract_handle_from_url(url)
-            if handle:
+        for idx in range(st.session_state.current_index, total_rows, batch_size):
+            batch_urls = st.session_state.urls[idx:idx + batch_size]
+            handles = [extract_handle_from_url(url) for url in batch_urls if extract_handle_from_url(url)]
+
+            if handles:
                 try:
-                    subs, vids = get_channel_stats(youtube, handle)
+                    stats_dict = get_channel_stats(youtube, handles)
+                    for url, handle in zip(batch_urls, handles):
+                        st.session_state.results.append({
+                            "Channel URL": url,
+                            "Subscribers": stats_dict.get(handle, {}).get("Subscribers", "N/A"),
+                            "Videos": stats_dict.get(handle, {}).get("Videos", "N/A")
+                        })
                 except Exception as e:
-                    st.error(f"Error processing {handle}: {str(e)}")
-                    subs, vids = 'Error', 'Error'
+                    st.error(f"Error processing {handles}: {str(e)}")
+                    for url in batch_urls:
+                        st.session_state.results.append({
+                            "Channel URL": url,
+                            "Subscribers": "Error",
+                            "Videos": "Error"
+                        })
 
-                st.session_state.results.append({
-                    "Channel URL": url,
-                    "Subscribers": subs,
-                    "Videos": vids
-                })
+            st.session_state.current_index = idx + batch_size
+            progress_bar.progress(min(st.session_state.current_index / total_rows, 1.0))
+            progress_text.text(f"Progress: {(st.session_state.current_index / total_rows) * 100:.2f}%")
 
-                st.session_state.current_index = idx + 1
-                progress_bar.progress((idx + 1) / total_rows)
-                progress_text.text(f"Progress: {(idx + 1) / total_rows * 100:.2f}%")
-
-                time.sleep(1)  # 1 request per second
+            time.sleep(1)  # pacing: 1 request per second
 
         st.session_state.processing = False
 
